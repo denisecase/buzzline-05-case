@@ -1,7 +1,7 @@
 """
 file_consumer_case.py
 
-Consume json messages from a live data file. 
+Consume json messages from a live data file.
 Insert the processed messages into a database.
 
 Example JSON message
@@ -16,7 +16,7 @@ Example JSON message
 }
 
 Database functions are in consumers/db_sqlite_case.py.
-Environment variables are in utils/utils_config module. 
+Environment variables are in utils/utils_config module.
 """
 
 #####################################
@@ -69,7 +69,12 @@ def process_message(message: str) -> None:
 #####################################
 
 
-def consume_messages_from_file(live_data_path, sql_path, interval_secs, last_position):
+def consume_messages_from_file(
+    live_data_path: pathlib.Path,
+    sql_path: pathlib.Path,
+    interval_secs: int,
+    last_position: int,
+):
     """
     Consume new messages from a file and process them.
     Each message is expected to be JSON-formatted.
@@ -86,11 +91,12 @@ def consume_messages_from_file(live_data_path, sql_path, interval_secs, last_pos
     logger.info(f"   {interval_secs=}")
     logger.info(f"   {last_position=}")
 
-    logger.info("1. Initialize the database.")
-    init_db(sql_path)
+    # OCT 2025 Do not re-initialize DB here; do it once in main()
+    # logger.info("1. Initialize the database.")
+    # init_db(sql_path)
 
-    logger.info("2. Set the last position to 0 to start at the beginning of the file.")
-    last_position = 0
+    # logger.info("2. Set the last position to 0 to start at the beginning of the file.")
+    # last_position = 0
 
     while True:
         try:
@@ -98,33 +104,55 @@ def consume_messages_from_file(live_data_path, sql_path, interval_secs, last_pos
             with open(live_data_path, "r") as file:
                 # Move to the last read position
                 file.seek(last_position)
+
+                # Initialize a counter for messages read in this iteration
+                messages_read = 0
+
                 for line in file:
                     # If we strip whitespace and there is content
                     if line.strip():
+                        try:
+                            # Use json.loads to parse the stripped line
+                            message = json.loads(line.strip())
 
-                        # Use json.loads to parse the stripped line
-                        message = json.loads(line.strip())
+                            # Call our process_message function
+                            processed_message = process_message(message)
 
-                        # Call our process_message function
-                        processed_message = process_message(message)
+                            # If we have a processed message, insert it into the database
+                            if processed_message:
+                                insert_message(processed_message, sql_path)
+                                messages_read += 1
 
-                        # If we have a processed message, insert it into the database
-                        if processed_message:
-                            insert_message(processed_message, sql_path)
+                        except json.JSONDecodeError as e:
+                            logger.error(
+                                f"ERROR: Invalid JSON in line: {line[:50]}: {e}"
+                            )
+                            continue
 
                 # Update the last position that's been read to the current file position
                 last_position = file.tell()
 
-                # Return the last position to be used in the next iteration
-                return last_position
+                if messages_read > 0:
+                    logger.info(
+                        f"Processed {messages_read} message(s). New position: {last_position}"
+                    )
 
         except FileNotFoundError:
-            logger.error(f"ERROR: Live data file not found at {live_data_path}.")
-            sys.exit(10)
+            logger.warning(
+                f"Live data file not found at {live_data_path}. "
+                f"Waiting {interval_secs} seconds for producer to create file..."
+            )
+            time.sleep(interval_secs)
+            continue
         except Exception as e:
-            logger.error(f"ERROR: Error reading from live data file: {e}")
-            sys.exit(11)
+            logger.error(
+                f"ERROR: Error reading from live data file: {e}\n"
+                f"  Waiting {interval_secs} seconds before retry..."
+            )
+            time.sleep(interval_secs)
+            continue
 
+        # Sleep before checking for new messages again
         time.sleep(interval_secs)
 
 
@@ -149,23 +177,35 @@ def main():
         interval_secs: int = config.get_message_interval_seconds_as_int()
         live_data_path: pathlib.Path = config.get_live_data_path()
         sqlite_path: pathlib.Path = config.get_sqlite_path()
+
+        # OCT 2025 add check to see if we reset the DB or not
+        reset_db: bool = config.get_reset_db_as_bool()
         logger.info("SUCCESS: Read environment variables.")
     except Exception as e:
         logger.error(f"ERROR: Failed to read environment variables: {e}")
         sys.exit(1)
 
-    logger.info("STEP 2. Delete any prior database file for a fresh start.")
-    if sqlite_path.exists():
+    logger.info(
+        "STEP 2. Delete any prior database file for a fresh start (if RESET_DB=true)."
+    )
+    if reset_db and sqlite_path.exists():
         try:
             sqlite_path.unlink()
-            logger.info("SUCCESS: Deleted database file.")
+            logger.info("SUCCESS: Deleted database file (RESET_DB=true in .env).")
         except Exception as e:
             logger.error(f"ERROR: Failed to delete DB file: {e}")
             sys.exit(2)
+    elif sqlite_path.exists():
+        logger.info("Database exists. Will continue appending data (idempotent mode).")
+        logger.info("  Tip: Set RESET_DB=true in .env to start fresh.")
+    else:
+        logger.info("No existing database. Will create new one.")
 
-    logger.info("STEP 3. Initialize a new database with an empty table.")
+    logger.info("STEP 3. Initialize database (idempotent, creates table if needed).")
     try:
         init_db(sqlite_path)
+        logger.info("SUCCESS: Database initialized.")
+
     except Exception as e:
         logger.error(f"ERROR: Failed to create db table: {e}")
         sys.exit(3)

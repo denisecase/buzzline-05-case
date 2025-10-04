@@ -153,6 +153,15 @@ def get_mongodb_collection() -> str:
     return collection
 
 
+def get_reset_db_as_bool() -> bool:
+    """
+    Get RESET_DB environment variable as boolean.
+    Returns False by default (idempotent mode).
+    """
+    reset_value = os.getenv("RESET_DB", "false").lower()
+    return reset_value in ("true", "1", "yes")
+
+
 #####################################
 # Conditional Execution
 #####################################

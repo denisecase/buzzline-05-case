@@ -54,7 +54,9 @@ def init_db(db_path: pathlib.Path):
             cursor = conn.cursor()
             logger.info("SUCCESS: Got a cursor to execute SQL.")
 
-            cursor.execute("DROP TABLE IF EXISTS streamed_messages;")
+            
+            # OCT 2025: Don't drop the table; make idempotent
+            # cursor.execute("DROP TABLE IF EXISTS streamed_messages;")
 
             cursor.execute(
                 """
