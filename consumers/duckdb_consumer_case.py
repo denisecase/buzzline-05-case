@@ -32,6 +32,7 @@ from utils.utils_logger import logger
 def init_db(db_path: pathlib.Path) -> None:
     """
     Create (or recreate) the streamed_messages table in a DuckDB database.
+    OCT 2025:Idempotent - safe to call multiple times.
 
     Args:
         db_path: Path to the DuckDB file (e.g., Path("data/buzz.duckdb"))
@@ -45,12 +46,14 @@ def init_db(db_path: pathlib.Path) -> None:
         con: duckdb.DuckDBPyConnection = duckdb.connect(str(db_path))
         logger.info("SUCCESS: Connected to DuckDB.")
 
-        # For a fresh start, drop then create
-        con.execute("DROP TABLE IF EXISTS streamed_messages;")
+        # OCT 2025: Don't drop table - use idempotent pattern
+        # con.execute("DROP TABLE IF EXISTS streamed_messages;")
+        
+        # DuckDB auto-increments BIGINT PRIMARY KEY (no additional syntax needed)
         con.execute(
             """
-            CREATE TABLE streamed_messages (
-                id BIGINT PRIMARY KEY GENERATED ALWAYS AS IDENTITY, -- auto-increment
+            CREATE TABLE IF NOT EXISTS streamed_messages (
+                id BIGINT PRIMARY KEY,
                 message TEXT,
                 author TEXT,
                 timestamp TEXT,
