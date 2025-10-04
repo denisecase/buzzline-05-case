@@ -1,7 +1,7 @@
 """
 kafka_consumer_case.py
 
-Consume json messages from a live data file. 
+Consume json messages from a live data file.
 Insert the processed messages into a database.
 
 Example JSON message
@@ -16,7 +16,7 @@ Example JSON message
 }
 
 Database functions are in consumers/db_sqlite_case.py.
-Environment variables are in utils/utils_config module. 
+Environment variables are in utils/utils_config module.
 """
 
 #####################################
@@ -36,7 +36,7 @@ from kafka import KafkaConsumer
 import utils.utils_config as config
 from utils.utils_consumer import create_kafka_consumer
 from utils.utils_logger import logger
-from utils.utils_producer import verify_services, is_topic_available
+from utils.utils_producer import verify_services  # OCT 2025, is_topic_available
 
 # Ensure the parent directory is in sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
@@ -122,16 +122,16 @@ def consume_messages_from_kafka(
         logger.error(f"ERROR: Could not create Kafka consumer: {e}")
         sys.exit(11)
 
-    logger.info("Step 3. Verify topic exists.")
-    if consumer is not None:
-        try:
-            is_topic_available(topic)
-            logger.info(f"Kafka topic '{topic}' is ready.")
-        except Exception as e:
-            logger.error(
-                f"ERROR: Topic '{topic}' does not exist. Please run the Kafka producer. : {e}"
-            )
-            sys.exit(13)
+    logger.info("Step 3. Verify topic exists - skip this OCT 2025.")
+    # if consumer is not None:
+    #     try:
+    #         is_topic_available(topic)
+    #         logger.info(f"Kafka topic '{topic}' is ready.")
+    #     except Exception as e:
+    #         logger.error(
+    #             f"ERROR: Topic '{topic}' does not exist. Please run the Kafka producer. : {e}"
+    #         )
+    #         sys.exit(13)
 
     logger.info("Step 4. Process messages.")
 
@@ -180,14 +180,24 @@ def main():
         logger.error(f"ERROR: Failed to read environment variables: {e}")
         sys.exit(1)
 
-    logger.info("STEP 2. Delete any prior database file for a fresh start.")
-    if sqlite_path.exists():
+    logger.info(
+        "STEP 2. Delete any prior database file for a fresh start (if RESET_DB=true)."
+    )
+    # OCT 2025: Update Step 2 block for optional DB reset
+    reset_db: bool = config.get_reset_db_as_bool()
+
+    if reset_db and sqlite_path.exists():
         try:
             sqlite_path.unlink()
-            logger.info("SUCCESS: Deleted database file.")
+            logger.info("SUCCESS: Deleted database file (RESET_DB=true in .env).")
         except Exception as e:
             logger.error(f"ERROR: Failed to delete DB file: {e}")
             sys.exit(2)
+    elif sqlite_path.exists():
+        logger.info("Database exists. Will continue appending data (idempotent mode).")
+        logger.info("  Tip: Set RESET_DB=true in .env to start fresh.")
+    else:
+        logger.info("No existing database. Will create new one.")
 
     logger.info("STEP 3. Initialize a new database with an empty table.")
     try:
